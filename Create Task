@@ -1,0 +1,108 @@
+### Jira Task Creation
+
+Create Jira Tasks in the **[AIP292 project](@https://apero.atlassian.net/jira/software/c/projects/AIP292/boards/44)** 
+using data from the spreadsheet:  @https://docs.google.com/spreadsheets/d/1jnhc9okFeADte00fF1Za2QAJg0Ja6XJtM0ne78fJMpU/edit?usp=sharing
+
+
+---
+
+#### Data Mapping Instructions
+Map columns from the spreadsheet as follows:  
+
+**For Epics:**
+- First check if Epic already exists by searching for exact name match
+- Only create if it doesn't exist
+
+**For Tasks:**
+- **Summary** → Value from 'Task' column
+- **Description** → Combine 'Description' and 'Detail' columns with a line break
+- **Issue Type** → "Task"
+- **Priority** → Value from 'Priority' column
+- **Start Date** → Value from 'Start date' column (format: YYYY-MM-DD) - use customfield_10015 field
+- **Due Date** → Value from 'Due date' column (format: YYYY-MM-DD)
+- **Original Estimate** → Value from 'Original Estimate' column
+- **Assignee** → Value from 'Assignee' column (if present)
+- **Version** → Value from 'Version' column (if present)
+
+**For Subtasks:**
+- **Summary** → Value from 'Sub Task' column
+- **Description** → Combine 'Description' and 'Detail' columns with a line break
+- **Issue Type** → "Subtask"
+- **Parent** → Task key (e.g., PPS-123)
+- **Priority** → Value from 'Priority' column
+- **Start Date** → Value from 'Start date' column (format: YYYY-MM-DD) - use customfield_10015 field (MUST SET EXPLICITLY)
+- **Due Date** → Value from 'Due date' column (format: YYYY-MM-DD) (MUST SET EXPLICITLY)
+- **Original Estimate** → Value from 'Original Estimate' column
+- **Assignee** → Value from 'Assignee' column (if present)
+- **Version** → Value from 'Version' column (if present)
+
+#### Process Flow:
+1. First identify all unique Epic names in the spreadsheet
+2. Create Tasks using the jira_create_issue function with appropriate fields:
+   ```
+   mcp_atlassian_MCP_jira_create_issue(
+       project_key="PPS",
+       summary="Task name from CSV",
+       issue_type="Task",
+       description="Description from CSV",
+       additional_fields={
+           "priority": {"name": "Priority from CSV"},  # ONLY if Priority exists in CSV
+           "customfield_10015": "YYYY-MM-DD",  # Start date (converted from DD/MM/YYYY format)
+           "duedate": "YYYY-MM-DD",            # Due date (converted from DD/MM/YYYY format)
+           "versions": [{"name": "Version from CSV"}]  # If available
+       }
+   )
+   ```
+3. CRITICAL: IMMEDIATELY after creating a task, always verify the due date and start date were set properly by making a separate update call:
+   ```
+   mcp_atlassian_MCP_jira_update_issue(
+       issue_key="newly_created_task_key",
+       fields={
+           "duedate": "YYYY-MM-DD",
+           "customfield_10015": "YYYY-MM-DD"
+       }
+   )
+   ```
+4. After updating each Task, use jira_link_to_epic function to link it to its parent Epic
+5. Create Subtasks with parent Task specified in the additional_fields:
+   ```
+   mcp_atlassian_MCP_jira_create_issue(
+       project_key="PPS",
+       summary="Subtask name from CSV",
+       issue_type="Subtask",
+       description="Description from CSV",
+       additional_fields={
+           "parent": "PPS-XXX",                # Parent task key 
+           "priority": {"name": "Priority from CSV"},  # ONLY if Priority exists in CSV
+           "customfield_10015": "YYYY-MM-DD",  # Start date (converted from DD/MM/YYYY format)
+           "duedate": "YYYY-MM-DD",            # Due date (converted from DD/MM/YYYY format)
+           "versions": [{"name": "Version from CSV"}]  # If available
+       }
+   )
+   ```
+6. CRITICAL: IMMEDIATELY after creating a subtask, always verify the due date, start date, and priority fields by making a separate update call:
+   ```
+   mcp_atlassian_MCP_jira_update_issue(
+       issue_key="newly_created_subtask_key",
+       fields={
+           "priority": {"name": "Priority from CSV"},  # ONLY if Priority exists in CSV
+           "duedate": "YYYY-MM-DD",
+           "customfield_10015": "YYYY-MM-DD"
+       }
+   )
+   ```
+7. For each Task or Subtask with a Status in the spreadsheet, transition it to the appropriate status using jira_transition_issue
+
+**IMPORTANT:**
+- **ALWAYS UPDATE DATES IMMEDIATELY AFTER CREATING TASKS AND SUBTASKS** to ensure due dates and start dates are properly set
+- **ONLY CREATE TASKS AND SUBTASKS THAT EXIST IN THE DOCS FILE - DO NOT GENERATE OR ADD ANY ADDITIONAL TASKS OR INFORMATION**
+- **NEVER use the "parent" field for linking Tasks to Epics** - always use the jira_link_to_epic function after creating a Task
+- **DO use the "parent" field when creating Subtasks** to link them to their parent Task
+- **ALWAYS convert dates from DD/MM/YYYY format to YYYY-MM-DD** format (e.g., convert 18/03/2025 to 2025-03-18)
+- **WHEN CSV HAS NO PRIORITY VALUE FOR A TASK OR SUBTASK, DO NOT SET OR UPDATE PRIORITY IN JIRA** - omit the priority field completely
+- **ALWAYS ensure the priority field is correctly set** for both Tasks and Subtasks (must explicitly set {"priority": {"name": "Priority from CSV"}}) ONLY when priority exists in CSV
+- **ALWAYS verify subtasks have due date fields set correctly after creation** - if not, use jira_update_issue
+- The start date field is `customfield_10015` in your Jira instance
+- The due date field is the standard `duedate` field
+- Check if an issue already exists before creating a duplicate by searching for matching summary under the same Epic
+- If any field values are missing in the CSV, omit them from the additional_fields object rather than passing null/empty values 

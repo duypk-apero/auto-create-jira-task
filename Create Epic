@@ -1,0 +1,62 @@
+### Jira Epic Creation from Spreadsheet  
+
+Create Jira Epics in the **[AIP187 project](https://apero.atlassian.net/jira/software/c/projects/AIP187/boards/119/backlog)** using data from the spreadsheet:  https://docs.google.com/spreadsheets/d/1WKkz_ZfneQs7IzWFFFWTpnBV4q34musyKsi96NCb4vg/edit?usp=sharing
+
+---
+
+#### Step 1: Data Extraction  
+Extract unique Epic names from the spreadsheet's "Epic" column and map data as follows:  
+- **Epic** → Epic name/summary  
+- **Priority** → Extract highest priority among tasks within the Epic  
+- **Start Date** → Earliest start date of any task in the Epic  
+- **Due Date** → Latest due date of any task in the Epic  
+- **Description** → Generated description summarizing the Epic's purpose and main features
+- **Assignee** → Assignee (if present)
+- **Version** → Version (if present, from most common version in Epic's tasks)
+
+#### Step 2: Epic Creation Process
+For each unique **Epic** value:  
+
+1. **Check for existing Epic first**:  
+```
+search_issues(
+    jql="project=project_key AND issuetype=Epic AND summary~'[Epic column value]'"
+)
+```
+
+2. **Create a Task issue if no duplicate exists**:  
+```
+create_issue(
+    project_key=project_key,
+    summary="[Epic column value]",
+    issue_type="Task",
+    description="[Generated description]",
+    priority="[Highest priority from tasks]",
+    duedate="[Latest due date from tasks]"
+)
+```
+   
+3. **Convert Task to Epic**:  
+```
+update_issue(
+    issue_key="[Task key from step 2]",
+    fields={"issuetype": {"name": "Epic"}}
+)
+```
+
+4. **Verify creation was successful**:
+```
+get_issue(
+    issue_key="[Epic key from step 3]"
+)
+```
+
+#### Step 3: After Creation
+- Record the mapping between Epic names and their Jira Epic keys for use in Task creation
+- Verify all Epics were created correctly with appropriate relationships
+
+**IMPORTANT:**
+- Always check for existing Epics before creating new ones to avoid duplicates
+- Generate meaningful descriptions that summarize the Epic's purpose based on its tasks
+- Use date ranges to set appropriate timeframes for each Epic
+- Include all metadata like version, assignee, and priority when available
