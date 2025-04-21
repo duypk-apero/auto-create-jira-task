@@ -1,7 +1,168 @@
+### Jira Task Creation from Spreadsheet
+
+**Goal:** Create Jira Tasks in project **AIP666** from the spreadsheet: https://docs.google.com/spreadsheets/d/1F1lb7URupPIvMZlkUFWWZUo02wJmRcIxsO1_uXM1Z-I/edit?usp=sharing
+
+**Core Requirement: Use a Template Task**
+
+1.  **Define Template Task:** Specify the Jira Key of an existing task in AIP666 that has all required custom fields (e.g., Start Date, Story Points) correctly set up.
+    `TEMPLATE_TASK_KEY = "AIP666-XYZ"` *(Replace with a real key)*
+
+2.  **Reason:** We use this template to find the *current* custom field IDs (like `customfield_XXXXX`) for fields like "Start Date" and "Story Points", avoiding errors if Jira configurations change.
+
+**Process Overview:**
+
+1.  **Map Field IDs:**
+    *   Fetch the `TEMPLATE_TASK_KEY` data (`get_issue` with `fields="*all"`, `expand="names"`).
+    *   From the data, find the actual `customfield_XXXXX` IDs for "Start Date", "Story Points", etc., and store these mappings (e.g., `start_date_field_id = result.fields.names['Start date']`).
+
+2.  **Process Spreadsheet Rows:** For each row:
+    *   **Epic:** Ensure the Epic listed exists (check via `search_issues`, create if missing using `create_issue` type Epic).
+    *   **Check for Existing Task/Subtask:** Search (`search_issues`) by summary under the correct Epic/Parent Task to avoid duplicates.
+    *   **Create Task/Subtask:** If it doesn't exist, create it (`create_issue`) mapping spreadsheet columns:
+        *   **Standard Fields:** `project_key`, `summary`, `issuetype` ("Task" or "Subtask"), `description`, `priority` (if present), `duedate` (YYYY-MM-DD), `assignee`.
+        *   **Parent:** Set `parent` field *only* for Subtasks.
+        *   **Dynamic Custom Fields:** Use the *mapped IDs* for Start Date (`start_date_field_id`), Story Points (`story_points_field_id`, if present in spreadsheet).
+    *   **Immediate Update:** *Directly after creation*, update the new issue (`update_issue`) to set/verify:
+        *   Dates (`duedate`, `start_date_field_id`).
+        *   Original Estimate (`timetracking`).
+        *   Story Points (`story_points_field_id`, if applicable).
+        *(This ensures fields are set even if creation had limitations)*.
+    *   **Link to Epic:** For *Tasks* (not Subtasks), link to the Epic (`link_to_epic`).
+    *   **Set Status:** If a status is in the spreadsheet, get available transitions (`get_transitions`) and transition the issue (`transition_issue`).
+
+**Key Reminders:**
+
+*   **Always use the mapped field IDs** for custom fields.
+*   **Handle missing data:** Omit fields from creation/update if not present in the spreadsheet or if ID mapping failed.
+*   **Date Format:** Convert spreadsheet dates (DD/MM/YYYY) to Jira format (YYYY-MM-DD).
+*   **Avoid duplicates** by searching first.
+
 ### Jira Task Creation
 
-Create Jira Tasks in the **[AIP292 project](@https://apero.atlassian.net/jira/software/c/projects/AIP292/boards/44)** 
-using data from the spreadsheet:  @https://docs.google.com/spreadsheets/d/1jnhc9okFeADte00fF1Za2QAJg0Ja6XJtM0ne78fJMpU/edit?usp=sharing
+Create Jira Tasks in the **[AIP187 project](https://apero.atlassian.net/jira/software/c/projects/AIP187/boards/119/backlog)** 
+using data from the spreadsheet:  https://docs.google.com/spreadsheets/d/1WKkz_ZfneQs7IzWFFFWTpnBV4q34musyKsi96NCb4vg/edit?usp=sharing
+
+---
+
+#### **STEP 0: Template Task Configuration**
+**CRITICAL:** To avoid issues with changing custom field IDs, **specify a Template Task Key** from the target project (e.g., `AIP666-XYZ`). This task should already exist and have all the necessary custom fields (like Start Date, Story Points) correctly configured.
+
+`TEMPLATE_TASK_KEY = "AIP666-XYZ"`  *(Replace with a real task key)*
+
+---
+
+#### **STEP 1: Dynamic Field ID Mapping**
+Before creating any tasks, the process **MUST** perform these steps:
+
+1.  **Fetch Template Task Data:**
+    ```
+    mcp_atlassian_MCP_jira_get_issue(
+        issue_key=TEMPLATE_TASK_KEY,
+        fields="*all",
+        expand="names"  # Request field names mapping if possible
+    )
+    ```
+2.  **Identify Field IDs:** Analyze the response from the `get_issue` call (specifically the `fields` and `names` sections) to determine the internal Jira IDs (`customfield_XXXXX`) for the required custom fields. Map known names to their IDs:
+    *   Find the ID for the field named "Start date" -> `start_date_field_id`
+    *   Find the ID for the field named "Story Points" -> `story_points_field_id`
+    *   *(Add mappings for any other required custom fields)*
+    *(Example: If "Start date" maps to "customfield_10015", then start_date_field_id = "customfield_10015")*
+
+---
+
+#### **STEP 2: Data Mapping Instructions**
+Map columns from the spreadsheet using the **dynamically obtained field IDs**:
+
+**For Epics:**
+- First check if Epic already exists by searching for exact name match
+- Only create if it doesn't exist
+
+**For Tasks:**
+- **Summary** → Value from 'Task' column
+- **Description** → Combine 'Description' and 'Detail' columns with a line break
+- **Issue Type** → "Task"
+- **Priority** → Value from 'Priority' column
+- **Start Date** → Value from 'Start date' column (format: YYYY-MM-DD) - Use the mapped `start_date_field_id`
+- **Due Date** → Value from 'Due date' column (format: YYYY-MM-DD) - Use the standard `duedate` field
+- **Original Estimate** → Value from 'Original Estimate' column
+- **Story Points** → Value from 'Story Points' column (if available) - Use the mapped `story_points_field_id`
+- **Assignee** → Value from 'Assignee' column (if present)
+- **Version** → Value from 'Version' column (if present)
+
+**For Subtasks:**
+- **Summary** → Value from 'Sub Task' column
+- **Description** → Combine 'Description' and 'Detail' columns with a line break
+- **Issue Type** → "Subtask"
+- **Parent** → Task key (e.g., PPS-123)
+- **Priority** → Value from 'Priority' column
+- **Start Date** → Value from 'Start date' column (format: YYYY-MM-DD) - Use the mapped `start_date_field_id`
+- **Due Date** → Value from 'Due date' column (format: YYYY-MM-DD) - Use the standard `duedate` field
+- **Original Estimate** → Value from 'Original Estimate' column
+- **Story Points** → Value from 'Story Points' column (if available) - Use the mapped `story_points_field_id`
+- **Assignee** → Value from 'Assignee' column (if present)
+- **Version** → Value from 'Version' column (if present)
+
+---
+
+#### **STEP 3: Process Flow:**
+1. Perform **STEP 1: Dynamic Field ID Mapping** first.
+2. Identify all unique Epic names in the spreadsheet.
+3. Create Tasks using `jira_create_issue` with dynamic field IDs:
+   ```
+   # Example additional_fields dictionary structure
+   additional_fields_dict = {
+       "priority": {"name": "Priority from CSV"},  # ONLY if Priority exists in CSV
+       start_date_field_id: "YYYY-MM-DD",       # Use mapped Start Date ID
+       "duedate": "YYYY-MM-DD",                # Standard Due Date field
+       "versions": [{"name": "Version from CSV"}]  # If available
+   }
+   # Add Story Points only if available in CSV and ID was found
+   if story_points_value_from_csv and story_points_field_id:
+       additional_fields_dict[story_points_field_id] = story_points_value_from_csv
+
+   mcp_atlassian_MCP_jira_create_issue(
+       project_key="PPS",
+       summary="Task name from CSV",
+       issue_type="Task",
+       description="Description from CSV",
+       additional_fields=json.dumps(additional_fields_dict) # Pass as JSON string
+   )
+   ```
+4. CRITICAL: IMMEDIATELY after creating a task, always verify the date fields and update Original Estimate/Story Points if they couldn't be set during creation:
+   ```
+   # Example fields dictionary structure for update
+   update_fields_dict = {
+       "duedate": "YYYY-MM-DD",
+       start_date_field_id: "YYYY-MM-DD" # Use mapped Start Date ID
+   }
+   # Add timetracking if Original Estimate exists
+   if original_estimate_from_csv:
+       update_fields_dict["timetracking"] = {"originalEstimate": original_estimate_from_csv}
+   # Add Story Points if available and ID was found
+   if story_points_value_from_csv and story_points_field_id:
+        update_fields_dict[story_points_field_id] = story_points_value_from_csv
+
+   mcp_atlassian_MCP_jira_update_issue(
+       issue_key="newly_created_task_key",
+       fields=json.dumps(update_fields_dict) # Pass as JSON string
+   )
+   ```
+5. After updating each Task, use `jira_link_to_epic` function to link it to its parent Epic.
+6. Create Subtasks similarly, ensuring `parent` field is set and using dynamic field IDs.
+7. CRITICAL: IMMEDIATELY after creating a subtask, verify/update fields like dates, priority, estimate, and story points using `jira_update_issue` with dynamic IDs.
+8. For each Task or Subtask with a Status in the spreadsheet, transition it using `jira_transition_issue`.
+
+**IMPORTANT:**
+- **ALWAYS PERFORM DYNAMIC FIELD ID MAPPING (STEP 1) FIRST.**
+- **ALWAYS UPDATE FIELDS IMMEDIATELY AFTER CREATING TASKS AND SUBTASKS** using the mapped field IDs to ensure correctness.
+- **ONLY CREATE TASKS AND SUBTASKS THAT EXIST IN THE DOCS FILE.**
+- **NEVER use the "parent" field for linking Tasks to Epics.** Use `jira_link_to_epic`.
+- **DO use the "parent" field when creating Subtasks.**
+- **ALWAYS convert dates from DD/MM/YYYY to YYYY-MM-DD format.**
+- **OMIT fields (like priority, story points) if the value is missing in the CSV OR if the field ID could not be mapped.**
+- The standard due date field is `duedate`.
+- Check for existing issues before creating duplicates.
+- Ensure the Assignee field uses the correct identifier (e.g., email or account ID) expected by your Jira instance.
 
 
 ---
